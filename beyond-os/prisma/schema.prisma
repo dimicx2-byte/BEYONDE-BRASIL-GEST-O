@@ -1,0 +1,207 @@
+// BEYOND OS — modelo de dados (PostgreSQL via Prisma)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- Identidade & acesso ----
+enum Role {
+  admin       // Acesso completo (inclui Usuários)
+  socio       // Acesso completo, sem Usuários
+  diretoria   // Acesso completo, sem Usuários e sem Financeiro
+  dir_fin     // Diretoria Financeira: completo, sem Usuários
+  equipe      // Equipe Brasil: completo, sem Usuários e sem Financeiro
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(equipe)
+  department   String?
+  scope        String?  @default("Brasil")
+  phone        String?
+  bio          String?
+  photoUrl     String?
+  status       String   @default("Ativo") // Ativo | Pendente | Inativo
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  deals        Deal[]     @relation("DealOwner")
+  ticketsResp  Ticket[]   @relation("TicketResp")
+}
+
+// ---- CRM B2C ----
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  company   String?
+  tier      String   @default("Gold") // Black | Platinum | Gold
+  email     String?
+  phone     String?
+  value     Int      @default(0) // LTV histórico (centavos ou inteiro de R$)
+  status    String   @default("Novo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deals     Deal[]
+}
+
+// ---- Funil de vendas (B2C/B2B por pipeline) ----
+model Deal {
+  id         String   @id @default(cuid())
+  title      String
+  pipeline   String   // produto/funil
+  stage      String   // etapa
+  value      Int      @default(0)
+  temperature String  @default("warm") // cold | warm | hot
+  statusDeal String   @default("aberto") // aberto | ganho | perdido
+  ownerId    String?
+  owner      User?    @relation("DealOwner", fields: [ownerId], references: [id])
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  events     DealEvent[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model DealEvent {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  type      String   // create | stage | note | checkpoint | activity | win | lose
+  text      String
+  author    String
+  createdAt DateTime @default(now())
+}
+
+// ---- Tickets / Chamados ----
+model Ticket {
+  id         String   @id @default(cuid())
+  code       String   @unique @default(cuid())
+  subject    String
+  department String?
+  requester  String?
+  status     String   @default("Novo")
+  slaState   String   @default("green")
+  respId     String?
+  resp       User?    @relation("TicketResp", fields: [respId], references: [id])
+  apoio      String[] @default([]) // e-mails de apoio
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ---- Contratos (aprovação por alçada + assinatura GOV.BR) ----
+model Contract {
+  id        String   @id @default(cuid())
+  title     String
+  party     String?
+  value     Int      @default(0)
+  status    String   @default("rascunho") // rascunho|aprovacao|aprovado|assinatura|assinado|expirado
+  attachments String[] @default([])
+  approvals Json     @default("[]") // [{role,ok,by,when}]
+  signedAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---- Gestão de crise ----
+model Crisis {
+  id        String   @id @default(cuid())
+  title     String
+  severity  String   @default("media") // baixa|media|alta|critica
+  status    String   @default("aberta") // aberta|contencao|resolvida
+  owner     String?
+  plan      Json     @default("[]")
+  timeline  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---- Universidade (LMS) ----
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  modules     Int      @default(0)
+  hours       String?
+  youtubeId   String?
+  createdAt   DateTime @default(now())
+}
+
+// ---- Marketing (repositório de artes) ----
+model Asset {
+  id        String   @id @default(cuid())
+  name      String
+  category  String   // Campanhas | Branding | Mídias Sociais | Material Comercial | Enxoval Corporativo
+  type      String   // Imagem | PDF | Vídeo | Logo
+  fileUrl   String?
+  uploadedBy String?
+  createdAt DateTime @default(now())
+}
+
+// ---- Comunicados / Notícias / Destaque ----
+model Announcement {
+  id        String   @id @default(cuid())
+  kind      String   @default("comunicado") // comunicado | noticia | destaque
+  title     String
+  body      String?
+  icon      String?
+  meta      String?
+  imageUrl  String?
+  authorId  String?
+  createdAt DateTime @default(now())
+}
+
+// ---- Projetos ----
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  company   String?
+  status    String[] @default([])
+  ownerName String?
+  phases    Json     @default("[]")
+  startDate String?
+  endDate   String?
+  createdAt DateTime @default(now())
+}
+
+// ---- Financeiro ----
+model FinancialEntry {
+  id        String   @id @default(cuid())
+  kind      String   // receivable | payable
+  party     String
+  description String?
+  amount    Int      @default(0)
+  dueDate   String?
+  status    String   @default("Pendente")
+  createdAt DateTime @default(now())
+}
+
+// ---- Agenda ----
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  date      String
+  time      String?
+  duration  String?
+  type      String?
+  ownerName String?
+  createdAt DateTime @default(now())
+}
+
+// ---- Auditoria ----
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  ip        String?
+  createdAt DateTime @default(now())
+}
